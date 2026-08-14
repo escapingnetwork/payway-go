@@ -1,32 +1,75 @@
 package payment
 
-// StatusDetails carries the finer-grained outcome of a charge. Ticket and CardAuthorizationCode
-// are confirmed field names (from the same documented response example as Payment below); Error's
-// shape when a payment is rejected was not shown in that example — kept as `any` until confirmed.
+// StatusDetails carries the finer-grained outcome of a charge. Ticket, CardAuthorizationCode, and
+// AddressValidationCode are confirmed field names — from the official Decidir/Payway "Alcance"
+// (SDK scope) documentation's payment-response examples, a stronger source than the
+// sdk-node-ventaonline README this package was originally scaffolded from. Error's shape when a
+// payment is rejected was not shown in any confirmed example — kept as `any` until confirmed.
 type StatusDetails struct {
 	Ticket                string `json:"ticket,omitempty"`
 	CardAuthorizationCode string `json:"card_authorization_code,omitempty"`
+	AddressValidationCode string `json:"address_validation_code,omitempty"`
 	Error                 any    `json:"error,omitempty"`
 }
 
+// SubPayment is one entry of a distributed (marketplace/aggregator) payment's sub_payments array,
+// confirmed from the official docs' "Pagos distribuidos" example. This SDK/integration does not
+// build distributed payments (see CreateRequest's SubPayments doc), but a distributed payment's
+// *response* could still come back with a populated array, so the shape is modeled for decoding
+// completeness, not for construction.
+type SubPayment struct {
+	ID                    int64  `json:"id,omitempty"`
+	SiteID                string `json:"site_id,omitempty"`
+	Installments          int    `json:"installments,omitempty"`
+	AmountCents           int64  `json:"amount,omitempty"`
+	Ticket                string `json:"ticket,omitempty"`
+	CardAuthorizationCode string `json:"card_authorization_code,omitempty"`
+	TID                   string `json:"tid,omitempty"`
+}
+
 // Payment is Decidir's payment resource, returned by both Create and Get. Confirmed against the
-// payway-ar/sdk-node-ventaonline README's documented example response (a flat JSON object, no
-// envelope) — NOT independently verified against a live sandbox call.
+// official Decidir/Payway "Alcance" (SDK scope) documentation's payment-response examples (a flat
+// JSON object, no envelope) — this supersedes the sdk-node-ventaonline README this package was
+// originally scaffolded from, and is NOT yet independently verified against a live sandbox call.
 //
-// Status's only confirmed value from that example is "approved". Decidir is documented elsewhere
-// (general product knowledge, NOT confirmed against this SDK's own sandbox testing) to also use
-// "rejected", "pending", and "in_process" — treat the full vocabulary as unconfirmed until a real
-// sandbox transaction exercises each path, and do not add a status-to-internal-state mapping
-// inside this SDK; that belongs in the caller (matching how the Mobbex/MP adapters in
+// Status's confirmed values from those examples are "approved" and "rejected"; Decidir is
+// documented elsewhere (general product knowledge, NOT confirmed against this SDK's own sandbox
+// testing) to also use "pending" and "in_process". Treat the full vocabulary as unconfirmed until
+// a real sandbox transaction exercises each path, and do not add a status-to-internal-state
+// mapping inside this SDK; that belongs in the caller (matching how the Mobbex/MP adapters in
 // prepa-backend keep status interpretation out of their raw API clients).
+//
+// TID (Transaction ID) is confirmed present at the root level for Visa/Mastercard/Amex simple
+// (non-distributed) payments; for distributed payments it appears per-SubPayment instead (see
+// SubPayment.TID) rather than at the root.
+//
+// AmountCents: the official docs are internally inconsistent about amount's unit. The "Pagos
+// distribuidos" section has an explicit "Aclaración" (clarification) stating amount is an integer
+// in cents (e.g. 10000 = $100.00), matching what this SDK already assumed. But the "Pago Simple"
+// section's own example payloads show `amount: 25.50` with a note "amount es un campo double" —
+// i.e. decimal major-units, not cents. This SDK keeps the cents interpretation (int64) since it's
+// the more explicit, unambiguous statement and matches the Mobbex/MP convention already used
+// elsewhere in prepa-backend, but this is a genuine unresolved contradiction in Decidir's own
+// documentation, not a settled fact — confirm which applies to this merchant's account against a
+// real sandbox charge (e.g. charge $1.00 and check what `amount` comes back as) before trusting
+// this for real money.
 type Payment struct {
-	ID                int64         `json:"id"`
-	SiteTransactionID string        `json:"site_transaction_id"`
-	PaymentMethodID   int           `json:"payment_method_id"`
-	CardBrand         string        `json:"card_brand,omitempty"`
-	AmountCents       int64         `json:"amount"`
-	Currency          string        `json:"currency"`
-	Status            string        `json:"status"`
-	StatusDetails     StatusDetails `json:"status_details"`
-	CustomerToken     string        `json:"customer_token,omitempty"`
+	ID                         int64         `json:"id"`
+	SiteTransactionID          string        `json:"site_transaction_id"`
+	PaymentMethodID            int           `json:"payment_method_id"`
+	CardBrand                  string        `json:"card_brand,omitempty"`
+	AmountCents                int64         `json:"amount"`
+	Currency                   string        `json:"currency"`
+	Status                     string        `json:"status"`
+	StatusDetails              StatusDetails `json:"status_details"`
+	CustomerToken              string        `json:"customer_token,omitempty"`
+	Date                       string        `json:"date,omitempty"`
+	TID                        string        `json:"tid,omitempty"`
+	BinNumber                  string        `json:"bin,omitempty"`
+	Installments               int           `json:"installments,omitempty"`
+	FirstInstallmentExpiration string        `json:"first_installment_expiration_date,omitempty"`
+	PaymentType                string        `json:"payment_type,omitempty"`
+	SubPayments                []SubPayment  `json:"sub_payments,omitempty"`
+	SiteID                     string        `json:"site_id,omitempty"`
+	Confirmed                  bool          `json:"confirmed,omitempty"`
 }

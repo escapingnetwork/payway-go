@@ -34,10 +34,17 @@ const (
 
 // defaultBaseURLs per the resource list the SDK was scaffolded from: Payway's own production
 // host (ventasonline.payway.com.ar) rather than Decidir's generic live.decidir.com, since this
-// SDK targets the Payway (Argentina) product specifically. NOT INDEPENDENTLY CONFIRMED against a
-// live call — some Decidir SDKs/docs instead point production at https://live.decidir.com; verify
-// which host this merchant's account actually needs against sandbox/production docs before
-// relying on this for real money, and correct here if it differs.
+// SDK targets the Payway (Argentina) product specifically. STILL NOT INDEPENDENTLY CONFIRMED for
+// this REST payment API against a live call. The official Decidir/Payway "Alcance" docs' hosted
+// checkout links (a different product — payment-link redirects, not what this SDK calls) do
+// consistently use developers.decidir.com (sandbox) / live.decidir.com (production) with a
+// /web/checkout/{payment_id} path, no /api/v2 segment — which is evidence for live.decidir.com as
+// at least one valid production host, but doesn't settle whether a Payway-branded merchant's REST
+// Payments API calls route through ventasonline.payway.com.ar or live.decidir.com/api/v2 (Payway
+// is a Decidir white-label, so the underlying backend may accept either host, or may require the
+// Payway-branded one specifically for these credentials). Verify against sandbox/production docs
+// or a real production credential before relying on this for real money, and correct here if it
+// differs.
 var defaultBaseURLs = map[Environment]string{
 	Production: "https://ventasonline.payway.com.ar/api/v2",
 	Sandbox:    "https://developers.decidir.com/api/v2",
