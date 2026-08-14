@@ -17,7 +17,8 @@ func TestClient_Create(t *testing.T) {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"token": "99ab0740-4ef9-4b38-bdf9-c4c963459b22"}`))
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id": "99ab0740-4ef9-4b38-bdf9-c4c963459b22", "status": "active", "bin": "450799", "last_four_digits": "4905"}`))
 	}))
 	defer srv.Close()
 
@@ -33,6 +34,10 @@ func TestClient_Create(t *testing.T) {
 		CardExpirationYear:  "50",
 		SecurityCode:        "123",
 		CardHolderName:      "Jorge Jorgelin",
+		CardHolderIdentification: CardHolderIdentification{
+			Type:   "dni",
+			Number: "12345678",
+		},
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)

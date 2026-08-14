@@ -65,16 +65,45 @@ follow that discipline (see prepa-backend's `mobbex` adapter for the convention 
 rather than silently trusting or silently "fixing" those comments without testing against a real
 sandbox call first.
 
-Confirmed from `sdk-node-ventaonline`'s README and the official "Alcance" docs:
-- Auth header: `apikey` (single static key, no OAuth/token exchange).
-- `payment.CreateRequest`/`payment.Payment` field names, including several enriched response
-  fields (`date`, `tid`, `bin`, `installments`, `payment_type`, `sub_payments`, `site_id`,
-  `status_details.address_validation_code`) added after cross-checking the official docs' real
-  response examples.
-- `refund.CreateRequest`'s partial-refund `amount` field and the `apikey` header usage.
+### Confirmed against a real sandbox call (2026-08-14)
+
+Using the known sandbox test credentials above and test card `4507990000004905`, the following
+were verified directly against `https://developers.decidir.com` (not just documentation):
+
+- **`POST /tokens`'s real request/response shape** — completely different from this SDK's
+  original guess. Request needs a nested `card_holder_identification: {type, number}` (not flat
+  doc-type/number fields); response's id field is `id` (not `token`), and includes `bin`,
+  `last_four_digits`, `expiration_month/year`, `cardholder` directly. See `pkg/tokenize`.
+- **`POST /payments` requires `payment_type` and `sub_payments` on every request**, even a plain
+  single-merchant charge — omitting either is a hard validation error. `Client.Create` now
+  defaults `payment_type: "single"` and `sub_payments: []` so callers don't need to know this.
+- **A business-rejected charge returns HTTP 402, not 200** — with a fully valid `Payment` body
+  attached (real id, `status: "rejected"`, `status_details`, etc.). `Client.Create` decodes this
+  normally now instead of surfacing it as a `PaywayError`; check `Payment.Status`, not `err`, to
+  detect a decline.
+- **The 400 error envelope is exactly** `{"error_type": "invalid_request_error",
+  "validation_errors": [{"code": "...", "param": "..."}]}` — confirms `parseAPIError`'s primary
+  shape guess.
+- **Auth header `apikey`** and the sandbox host confirmed reachable and working end-to-end.
+
+**Still NOT settled: `amount`'s unit (cents vs. major-units).** A real charge could not be pushed
+through to a genuine approve/decline outcome — the published sandbox test key pair has full
+Cybersource Decision Manager fraud detection enabled, which (after supplying `customer`,
+`fraud_detection.bill_to`, `fraud_detection.purchase_totals`, etc.) ultimately demands a
+`DeviceFingerprintID` — a browser-generated fraud-detection session id from a client-side JS
+beacon, not obtainable from a server-side/curl test. `amount: 1` and `amount: 1000` both passed
+every validation layer reached without an amount-specific rejection, which is weak evidence
+against a strict pesos-scale minimum but does not prove the unit either way — see
+`pkg/payment/response.go`'s `AmountCents` doc for the full reasoning. This SDK keeps the cents
+interpretation; confirm against Prepa's actual (non-fraud-detection-locked) merchant sandbox
+account, where a real approve/decline should be reachable without wrestling this specific test
+key's Cybersource configuration.
+
+Also confirmed from `sdk-node-ventaonline`'s README and the official "Alcance" docs:
+- `payment.Payment`'s enriched response fields (`date`, `tid`, `bin`, `installments`,
+  `payment_type`, `sub_payments`, `site_id`, `status_details.address_validation_code`).
 - **Refund needs no `site_id`** — every refund-family SDK method (`refund`, `partialRefund`,
   `deleteRefund`, `deletePartialRefund`) takes only the private apikey + payment id.
-- Sandbox host `https://developers.decidir.com` (this SDK appends `/api/v2`).
 
 NOT confirmed — verify against sandbox before shipping:
 - Production host — see `pkg/config/config.go`'s expanded comment; the official docs give
@@ -82,18 +111,8 @@ NOT confirmed — verify against sandbox before shipping:
   Payments API this SDK calls, so `ventasonline.payway.com.ar` remains the default pending
   confirmation against a real production credential.
 - Full payment `status` vocabulary beyond `"approved"`/`"rejected"`.
-- **`amount`'s unit is genuinely contradictory in Decidir's own docs** — see the "Aclaración" vs.
-  "Pago Simple" note in `pkg/payment/response.go`. This SDK keeps cents; confirm against a real
-  sandbox charge before trusting it for real money.
-- Error response shape (`pkg/config/config.go`'s `parseAPIError` probes a couple of documented-elsewhere
-  shapes defensively, matching neither confirmed).
 - `pkg/refund`'s response shape and exact endpoint path (only the request shape + no-site_id fact
   above are confirmed).
-- `pkg/tokenize`'s entire request/response shape for the public-key client-side flow this package
-  models. The official docs do give a concrete real shape, but for a differently-named endpoint
-  (`internaltokens`, "tokenización interna") that may be a different product — see
-  `pkg/tokenize/request.go` for the full reasoning and the concrete alternate shape to switch to
-  if sandbox testing confirms it's the right one.
 
 ## Testing
 

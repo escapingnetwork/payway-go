@@ -109,14 +109,21 @@ func New(apiKey string, opts ...Option) (*Config, error) {
 	return cfg, nil
 }
 
-// DoRequest performs an authenticated API call and decodes a 2xx JSON response into out.
+// DoRequest performs an authenticated API call and decodes a 2xx (or explicitly allowed) JSON
+// response into out.
 //
 // Decidir's documented example payment response (see pkg/payment/response.go) is a flat JSON
 // object with no {"data": ...} envelope, unlike Talo's API — so this does not attempt Talo's
 // envelope-then-fallback unwrap. If a future endpoint turns out to be enveloped, prefer adding a
 // narrow per-endpoint unwrap in that resource's client rather than reintroducing an unconditional
 // guess here.
-func (c *Config) DoRequest(ctx context.Context, method, path string, body, out any) error {
+//
+// extraOKStatuses lets a caller decode a non-2xx status as a normal body instead of an error —
+// CONFIRMED needed for POST /payments, which returns HTTP 402 (not 200) for a business-rejected
+// charge, with a fully valid Payment body attached (real id, status: "rejected", etc., verified
+// directly against sandbox). Pass extra statuses only where confirmed true for that endpoint —
+// this is not a general "ignore errors" escape hatch.
+func (c *Config) DoRequest(ctx context.Context, method, path string, body, out any, extraOKStatuses ...int) error {
 	fullURL := c.buildURL(path)
 
 	var reqBody io.Reader
@@ -146,7 +153,16 @@ func (c *Config) DoRequest(ctx context.Context, method, path string, body, out a
 
 	rawBody, _ := io.ReadAll(resp.Body)
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	ok := resp.StatusCode >= 200 && resp.StatusCode < 300
+	if !ok {
+		for _, s := range extraOKStatuses {
+			if resp.StatusCode == s {
+				ok = true
+				break
+			}
+		}
+	}
+	if !ok {
 		return parseAPIError(resp.StatusCode, rawBody)
 	}
 
@@ -163,13 +179,11 @@ func (c *Config) buildURL(path string) string {
 	return c.baseURL + "/" + strings.TrimLeft(path, "/")
 }
 
-// decidirValidationError is ONE of several NOT CONFIRMED shapes Decidir's docs and various
-// third-party integration reports describe for 4xx bodies — commonly a bare array of
-// {code, param} objects, sometimes wrapped under "validation_errors, sometimes with a top-level
-// "error_type". parseAPIError tries the array-first shape (the most commonly cited one) and
-// falls back to a generic message extraction, the same "probe several shapes defensively" idea
-// talo-go's parseAPIError uses for its own not-fully-consistent upstream. VERIFY THE REAL SHAPE
-// AGAINST SANDBOX before depending on ErrorType/ValidationErrors for user-facing error copy.
+// decidirValidationError is Decidir's 400 body shape — CONFIRMED via direct sandbox testing
+// against POST /tokens and POST /payments (both returned exactly
+// {"error_type": "invalid_request_error", "validation_errors": [{"code": "...", "param": "..."}]}
+// for missing/invalid fields). The bare-array fallback below is kept for defensiveness on
+// endpoints not yet tested this way, but the object-wrapped shape is the confirmed one.
 type decidirValidationError struct {
 	Code  string `json:"code"`
 	Param string `json:"param"`

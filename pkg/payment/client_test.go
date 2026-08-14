@@ -70,6 +70,45 @@ func TestClient_Create(t *testing.T) {
 	if gotBody.AmountCents != 2550 {
 		t.Errorf("request body amount = %d, want 2550", gotBody.AmountCents)
 	}
+	if gotBody.SubPayments == nil {
+		t.Error("request body sub_payments was nil (would serialize as JSON null) — Decidir requires an explicit array")
+	}
+}
+
+// TestClient_Create_RejectedPayment confirms the (2026-08-14, direct sandbox testing) finding
+// that Decidir returns HTTP 402 — not 200 — for a business-rejected charge, with a fully valid
+// Payment body attached. Create must decode that body rather than surface it as an error.
+func TestClient_Create_RejectedPayment(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusPaymentRequired)
+		_, _ = w.Write([]byte(`{
+			"id": 16049276,
+			"site_transaction_id": "test-1",
+			"status": "rejected",
+			"amount": 1000,
+			"currency": "ars",
+			"status_details": {"error": {"type": "cybersource_error"}}
+		}`))
+	}))
+	defer srv.Close()
+
+	cfg, err := config.New("private-key", config.WithBaseURL(srv.URL))
+	if err != nil {
+		t.Fatalf("config.New: %v", err)
+	}
+	client := NewClient(cfg)
+
+	got, err := client.Create(context.Background(), CreateRequest{SiteTransactionID: "test-1"})
+	if err != nil {
+		t.Fatalf("Create: unexpected error for a 402 rejected-payment body: %v", err)
+	}
+	if got.Status != "rejected" {
+		t.Errorf("Status = %q, want rejected", got.Status)
+	}
+	if got.ID != 16049276 {
+		t.Errorf("ID = %d, want 16049276", got.ID)
+	}
 }
 
 func TestClient_Get(t *testing.T) {
