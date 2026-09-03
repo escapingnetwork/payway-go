@@ -40,7 +40,7 @@ func (c *client) Create(ctx context.Context, req CreateRequest) (*Payment, error
 		req.PaymentType = PaymentTypeSingle
 	}
 	if req.SubPayments == nil {
-		req.SubPayments = []any{}
+		req.SubPayments = []SubPaymentRequest{}
 	}
 
 	var out Payment

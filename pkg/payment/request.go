@@ -24,15 +24,15 @@ const (
 //     not something universal — a real Prepa merchant sandbox account provisioned without it
 //     should charge cleanly through this same request shape.
 type CreateRequest struct {
-	SiteTransactionID string `json:"site_transaction_id"`
-	Token             string `json:"token"`
-	UserID            string `json:"user_id,omitempty"`
-	PaymentMethodID   int    `json:"payment_method_id"`
-	BinNumber         string `json:"bin"`
-	AmountCents       int64  `json:"amount"`
-	Currency          string `json:"currency"`
-	Installments      int    `json:"installments"`
-	Description       string `json:"description,omitempty"`
-	PaymentType       string `json:"payment_type"`
-	SubPayments       []any  `json:"sub_payments"`
+	SiteTransactionID string              `json:"site_transaction_id"`
+	Token             string              `json:"token"`
+	UserID            string              `json:"user_id,omitempty"`
+	PaymentMethodID   int                 `json:"payment_method_id"`
+	BinNumber         string              `json:"bin"`
+	AmountCents       int64               `json:"amount"`
+	Currency          string              `json:"currency"`
+	Installments      int                 `json:"installments"`
+	Description       string              `json:"description,omitempty"`
+	PaymentType       string              `json:"payment_type"`
+	SubPayments       []SubPaymentRequest `json:"sub_payments"`
 }

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/escapingnetwork/payway-go/pkg/config"
@@ -185,6 +186,43 @@ func TestClient_Create_DefaultsPaymentTypeSingle(t *testing.T) {
 	}
 	if seen != PaymentTypeSingle {
 		t.Errorf("payment_type sent = %q, want %q", seen, PaymentTypeSingle)
+	}
+}
+
+func TestClient_Create_SendsTypedSubPayments(t *testing.T) {
+	var raw string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		raw = string(b)
+		_, _ = w.Write([]byte(`{"id":1,"status":"approved"}`))
+	}))
+	defer srv.Close()
+	cfg, _ := config.New("k", config.WithBaseURL(srv.URL))
+	_, err := NewClient(cfg).Create(context.Background(), CreateRequest{
+		Token: "t", AmountCents: 1000, Currency: "ARS", Installments: 1,
+		PaymentType: PaymentTypeDistributed,
+		SubPayments: []SubPaymentRequest{{SiteID: "33333333", Installments: 1, AmountCents: 500}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(raw, `"sub_payments":[{"site_id":"33333333","installments":1,"amount":500}]`) {
+		t.Errorf("body = %s", raw)
+	}
+}
+
+func TestClient_Create_EmptySubPaymentsStillSendsArray(t *testing.T) {
+	var raw string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		raw = string(b)
+		_, _ = w.Write([]byte(`{"id":1,"status":"approved"}`))
+	}))
+	defer srv.Close()
+	cfg, _ := config.New("k", config.WithBaseURL(srv.URL))
+	_, _ = NewClient(cfg).Create(context.Background(), CreateRequest{Token: "t", AmountCents: 1, Currency: "ARS", Installments: 1})
+	if !strings.Contains(raw, `"sub_payments":[]`) {
+		t.Errorf("expected sub_payments:[] in body: %s", raw)
 	}
 }
 

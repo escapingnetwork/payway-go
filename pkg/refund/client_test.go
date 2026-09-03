@@ -6,9 +6,11 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/escapingnetwork/payway-go/pkg/config"
+	"github.com/escapingnetwork/payway-go/pkg/payment"
 )
 
 func TestClient_Create_FullRefund(t *testing.T) {
@@ -68,5 +70,27 @@ func TestClient_Create_PartialRefund(t *testing.T) {
 	}
 	if amt, _ := gotBody["amount"].(float64); int64(amt) != 1050 {
 		t.Errorf("request body amount = %v, want 1050", gotBody["amount"])
+	}
+}
+
+func TestClient_Create_DistributedRefundSendsSubPayments(t *testing.T) {
+	var raw string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		raw = string(b)
+		_, _ = w.Write([]byte(`{"id":1,"amount":1000,"status":"approved"}`))
+	}))
+	defer srv.Close()
+	cfg, _ := config.New("k", config.WithBaseURL(srv.URL))
+	amt := int64(1000)
+	_, err := NewClient(cfg).Create(context.Background(), "555", CreateRequest{
+		AmountCents: &amt,
+		SubPayments: []payment.SubPaymentRequest{{SiteID: "33333333", Installments: 1, AmountCents: 900}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(raw, `"sub_payments":[{"site_id":"33333333","installments":1,"amount":900}]`) {
+		t.Errorf("body = %s", raw)
 	}
 }
