@@ -43,16 +43,13 @@ type SubPayment struct {
 // (non-distributed) payments; for distributed payments it appears per-SubPayment instead (see
 // SubPayment.TID) rather than at the root.
 //
-// AmountCents: the official docs are internally inconsistent about amount's unit. The "Pagos
-// distribuidos" section has an explicit "Aclaración" (clarification) stating amount is an integer
-// in cents (e.g. 10000 = $100.00), matching what this SDK already assumed. But the "Pago Simple"
-// section's own example payloads show `amount: 25.50` with a note "amount es un campo double" —
-// i.e. decimal major-units, not cents. This SDK keeps the cents interpretation (int64) since it's
-// the more explicit, unambiguous statement and matches the Mobbex/MP convention already used
-// elsewhere in prepa-backend, but this is a genuine unresolved contradiction in Decidir's own
-// documentation, not a settled fact — confirm which applies to this merchant's account against a
-// real sandbox charge (e.g. charge $1.00 and check what `amount` comes back as) before trusting
-// this for real money.
+// AmountCents' unit is CONFIRMED as cents (2026-09-03), settling what was previously a genuine
+// contradiction in Decidir's own docs (a "Pagos distribuidos" clarification said cents; a "Pago
+// Simple" example showed a decimal `amount: 25.50` with a "campo double" note). The official
+// "Tablas de Referencia" page's field spec for `amount` states plainly: "importe del pago" /
+// "Importe minimo = 1 ($0.01)" — a minimum wire value of 1 mapping to $0.01 is only consistent
+// with cents. Also confirmed on the same page: the field's documented maximum is
+// 922337203685 ($9223372036.85, i.e. int64-range cents), matching this field's int64 type.
 type Payment struct {
 	ID                         int64         `json:"id"`
 	SiteTransactionID          string        `json:"site_transaction_id"`

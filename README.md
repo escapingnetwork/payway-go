@@ -50,7 +50,7 @@ p, err := payClient.Create(ctx, payment.CreateRequest{
     Token:             cardToken, // obtained by the client tokenizing directly against Decidir
     PaymentMethodID:   1,
     BinNumber:         "450799",
-    AmountCents:        2550, // $25.50 — Decidir amounts are integer cents
+    AmountCents:        2550, // $25.50 — Decidir amounts are integer cents (confirmed)
     Currency:           "ARS",
     Installments:        1,
 })
@@ -86,18 +86,28 @@ were verified directly against `https://developers.decidir.com` (not just docume
   shape guess.
 - **Auth header `apikey`** and the sandbox host confirmed reachable and working end-to-end.
 
-**Still NOT settled: `amount`'s unit (cents vs. major-units).** A real charge could not be pushed
-through to a genuine approve/decline outcome — the published sandbox test key pair has full
-Cybersource Decision Manager fraud detection enabled, which (after supplying `customer`,
-`fraud_detection.bill_to`, `fraud_detection.purchase_totals`, etc.) ultimately demands a
-`DeviceFingerprintID` — a browser-generated fraud-detection session id from a client-side JS
-beacon, not obtainable from a server-side/curl test. `amount: 1` and `amount: 1000` both passed
-every validation layer reached without an amount-specific rejection, which is weak evidence
-against a strict pesos-scale minimum but does not prove the unit either way — see
-`pkg/payment/response.go`'s `AmountCents` doc for the full reasoning. This SDK keeps the cents
-interpretation; confirm against Prepa's actual (non-fraud-detection-locked) merchant sandbox
-account, where a real approve/decline should be reachable without wrestling this specific test
-key's Cybersource configuration.
+### Confirmed against the official "Tablas de Referencia" (reference tables) page (2026-09-03)
+
+- **`amount`'s unit is now settled: cents.** The docs' own field spec for `amount` reads "importe
+  del pago" / "Importe minimo = 1 ($0.01)" — a minimum wire value of 1 mapping to one cent only
+  makes sense if the field is integer cents throughout, resolving what was previously a genuine
+  contradiction elsewhere in Decidir's docs. See `pkg/payment/response.go`'s `AmountCents` doc.
+- **`payment_type`'s only two valid values are confirmed: `"single"` and `"distributed"`.**
+- **Cybersource fraud detection is a per-merchant/site toggle, not universal** — "Si tu comercio lo
+  tiene habilitado, es obligatorio enviar el objeto fraud_detection en flujos directos." This
+  explains why the shared sandbox test key pair below couldn't complete a real approve/decline (see
+  `pkg/payment/request.go`): that specific test site has it enabled. A real Prepa merchant sandbox
+  account provisioned without it should charge cleanly.
+- **98 payment method IDs** (`payment_method_id`, e.g. Visa=1, American Express=65, MasterCard
+  Prisma=104, Diners Club=8) are documented on that page — not yet modeled as SDK constants (the
+  full list is Argentina-card-network-specific and large; add them if/when a caller needs a
+  human-readable→ID lookup rather than passing IDs through from elsewhere).
+- HTTP status code table on that page (400 `malformed_request_error`, 401 `authentication_error`,
+  402 `invalid_request_error`, 404 `not_found_error`, 409 `api_error`) **conflicts with what was
+  independently observed against the live sandbox** (400 actually returned `invalid_request_error`,
+  and 402 is used for a fully-formed *rejected payment*, not a request error) — the live sandbox
+  behavior already encoded in `pkg/config/config.go` and `payment/client.go` is the one to trust;
+  this doc table looks stale or describes a different product surface.
 
 Also confirmed from `sdk-node-ventaonline`'s README and the official "Alcance" docs:
 - `payment.Payment`'s enriched response fields (`date`, `tid`, `bin`, `installments`,
@@ -113,6 +123,9 @@ NOT confirmed — verify against sandbox before shipping:
 - Full payment `status` vocabulary beyond `"approved"`/`"rejected"`.
 - `pkg/refund`'s response shape and exact endpoint path (only the request shape + no-site_id fact
   above are confirmed).
+- A genuine end-to-end approve/decline charge — still blocked on getting a real (non-Cybersource-
+  locked) Prepa merchant sandbox account; everything above was confirmed via request/response
+  *shape* probing and documentation, not a completed charge.
 
 ## Testing
 
