@@ -37,7 +37,7 @@ func (c *client) Create(ctx context.Context, req CreateRequest) (*Payment, error
 	// doc) even for a plain non-aggregator charge; default them here so callers that only care
 	// about single-merchant charges don't have to know about this requirement.
 	if req.PaymentType == "" {
-		req.PaymentType = "single"
+		req.PaymentType = PaymentTypeSingle
 	}
 	if req.SubPayments == nil {
 		req.SubPayments = []any{}

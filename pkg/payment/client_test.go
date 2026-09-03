@@ -169,6 +169,25 @@ func TestClient_Create_DecodesDistributedResponse(t *testing.T) {
 	}
 }
 
+func TestClient_Create_DefaultsPaymentTypeSingle(t *testing.T) {
+	var seen string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		seen, _ = body["payment_type"].(string)
+		_, _ = w.Write([]byte(`{"id":1,"status":"approved"}`))
+	}))
+	defer srv.Close()
+	cfg, _ := config.New("k", config.WithBaseURL(srv.URL))
+	_, err := NewClient(cfg).Create(context.Background(), CreateRequest{Token: "t", AmountCents: 1, Currency: "ARS", Installments: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seen != PaymentTypeSingle {
+		t.Errorf("payment_type sent = %q, want %q", seen, PaymentTypeSingle)
+	}
+}
+
 func TestClient_Create_ErrorResponse(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnprocessableEntity)

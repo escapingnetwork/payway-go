@@ -1,5 +1,10 @@
 package payment
 
+const (
+	PaymentTypeSingle      = "single"
+	PaymentTypeDistributed = "distributed"
+)
+
 // CreateRequest charges a previously generated card token, POSTed to /payments. Field names
 // CONFIRMED via direct sandbox testing (2026-08-14, sandbox test card 4507990000004905):
 //   - PaymentType and SubPayments are BOTH hard-required by Decidir even for a plain
