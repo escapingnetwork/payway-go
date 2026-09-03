@@ -11,10 +11,24 @@ for the tokenization flow; further cross-checked against the official Decidir/Pa
 (SDK scope) documentation, which is the strongest source used so far and superseded several of the
 above where they conflicted (see field-level comments).
 
+## Environments / base URLs
+
+Payway's own hosts (the legacy Decidir sandbox host `developers.decidir.com` shared one backend
+with these and was dropped 2026-09-03):
+
+| Environment | Base URL |
+|---|---|
+| `config.Sandbox` | `https://developers-ventasonline.payway.com.ar/api/v2` |
+| `config.Production` | `https://ventasonline.payway.com.ar/api/v2` |
+
+Payway is also standing up an APIM gateway (`api-sandbox.payway.com.ar`, a different error
+envelope — `parseAPIError` already tolerates it); the defaults will move there once the
+credential stack is confirmed. Override either host today with `config.WithBaseURL`.
+
 ### Known sandbox test credentials (from official docs)
 
-For a quick smoke test against `https://developers.decidir.com`, the official docs publish these
-sandbox-only test keys for exercising the two-step (pre-authorization + capture) flow:
+For a quick smoke test against `https://developers-ventasonline.payway.com.ar`, the official docs
+publish these sandbox-only test keys for exercising the two-step (pre-authorization + capture) flow:
 
 - Public test key: `41cbc74acc604a109157bb8394561d27`
 - Private test key: `1fb6dc55c0a1489db411a8ee8f9c9707`
@@ -47,14 +61,57 @@ if err != nil {
 payClient := payment.NewClient(cfg)
 p, err := payClient.Create(ctx, payment.CreateRequest{
     SiteTransactionID: "order-123",
-    Token:             cardToken, // obtained by the client tokenizing directly against Decidir
+    Token:             cardToken, // obtained by the client tokenizing directly against Payway
     PaymentMethodID:   1,
     BinNumber:         "450799",
-    AmountCents:        2550, // $25.50 — Decidir amounts are integer cents (confirmed)
+    AmountCents:        2550, // $25.50 — Payway amounts are integer cents (confirmed)
     Currency:           "ARS",
     Installments:        1,
 })
 ```
+
+### Distributed (marketplace) charge — split by amount
+
+Set `PaymentType` to `payment.PaymentTypeDistributed` and pass one `SubPaymentRequest` per
+participating Payway site; the legs must sum to the parent `AmountCents`.
+
+```go
+p, err := payClient.Create(ctx, payment.CreateRequest{
+    SiteTransactionID: "order-123",
+    Token:             cardToken,
+    PaymentMethodID:   1,
+    BinNumber:         "450799",
+    AmountCents:        2550,
+    Currency:          "ARS",
+    Installments:      1,
+    PaymentType:       payment.PaymentTypeDistributed,
+    SubPayments: []payment.SubPaymentRequest{
+        {SiteID: "04052018", Installments: 1, AmountCents: 2525}, // merchant
+        {SiteID: "04052019", Installments: 1, AmountCents: 25},   // platform fee
+    },
+})
+```
+
+The response's `sub_payments[]` carries the per-leg outcome — `SubPayment.ID` (decoded from
+`subpayment_id`), `SubPayment.AmountCents`, and `SubPayment.Status` (which can differ from the
+parent `Payment.Status`). A distributed refund mirrors this: `refund.CreateRequest.SubPayments`
+takes `[]payment.SubPaymentRequest` for a leg-by-leg reversal.
+
+### Payment status vocabulary
+
+Payway "Estado de las transacciones" (2026-09-03):
+
+```
+process    -> approved | group_rejected | group_annulled   (distributed validation)
+approved   -> accredited (batch close) | annulled (reversal before close)
+accredited -> refunded (full) | approved_with_refund (partial)
+annulled   -> annulment_approved
+refunded   -> refunded_approved
+```
+
+Synchronous charge outcomes a caller sees: `approved | rejected | review`. This SDK does **not**
+map these to an internal state — that belongs in the caller (in prepa-backend,
+`models.PaywayStatusToPaymentState`), matching the MP/Mobbex adapters.
 
 ## Status: many field shapes unverified
 
@@ -68,7 +125,7 @@ sandbox call first.
 ### Confirmed against a real sandbox call (2026-08-14)
 
 Using the known sandbox test credentials above and test card `4507990000004905`, the following
-were verified directly against `https://developers.decidir.com` (not just documentation):
+were verified directly against the Payway sandbox host (not just documentation):
 
 - **`POST /tokens`'s real request/response shape** — completely different from this SDK's
   original guess. Request needs a nested `card_holder_identification: {type, number}` (not flat
@@ -112,17 +169,20 @@ were verified directly against `https://developers.decidir.com` (not just docume
 Also confirmed from `sdk-node-ventaonline`'s README and the official "Alcance" docs:
 - `payment.Payment`'s enriched response fields (`date`, `tid`, `bin`, `installments`,
   `payment_type`, `sub_payments`, `site_id`, `status_details.address_validation_code`).
-- **Refund needs no `site_id`** — every refund-family SDK method (`refund`, `partialRefund`,
-  `deleteRefund`, `deletePartialRefund`) takes only the private apikey + payment id.
+- **`amount` is integer centavos** — settled via the "Tablas de Referencia" field spec (min wire
+  value `1` = `$0.01`); `prepa-backend` already sends cents. Do not change amount handling.
+- **Refund is `POST /payments/{id}/refunds` and needs no `site_id`** — every refund-family method
+  (`refund`, `partialRefund`, `deleteRefund`, `deletePartialRefund`) authenticates with the
+  private apikey + payment id alone.
+- Full payment `status` vocabulary — see "Payment status vocabulary" above.
 
 NOT confirmed — verify against sandbox before shipping:
-- Production host — see `pkg/config/config.go`'s expanded comment; the official docs give
-  evidence for `live.decidir.com` for a *different* product (hosted checkout), not the REST
-  Payments API this SDK calls, so `ventasonline.payway.com.ar` remains the default pending
-  confirmation against a real production credential.
-- Full payment `status` vocabulary beyond `"approved"`/`"rejected"`.
-- `pkg/refund`'s response shape and exact endpoint path (only the request shape + no-site_id fact
-  above are confirmed).
+- Production host — the official docs give evidence for `live.decidir.com` for a *different*
+  product (hosted checkout), not the REST Payments API this SDK calls, so
+  `ventasonline.payway.com.ar` remains the default pending confirmation against a real
+  production credential.
+- `pkg/refund`'s response body shape (the endpoint path and no-`site_id` auth fact above are
+  confirmed).
 - A genuine end-to-end approve/decline charge — still blocked on getting a real (non-Cybersource-
   locked) Prepa merchant sandbox account; everything above was confirmed via request/response
   *shape* probing and documentation, not a completed charge.
