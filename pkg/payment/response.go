@@ -34,10 +34,12 @@ type SubPayment struct {
 // originally scaffolded from, and is NOT yet independently verified against a live sandbox call.
 //
 // Status lifecycle (Payway "Estado de las transacciones", 2026-09-03):
-//   process -> approved | group_rejected | group_annulled   (distributed validation)
-//   approved -> accredited (batch close) | annulled (reversal before close)
-//   accredited -> refunded (full) | approved_with_refund (partial)
-//   annulled -> annulment_approved ; refunded -> refunded_approved
+//
+//	process -> approved | group_rejected | group_annulled   (distributed validation)
+//	approved -> accredited (batch close) | annulled (reversal before close)
+//	accredited -> refunded (full) | approved_with_refund (partial)
+//	annulled -> annulment_approved ; refunded -> refunded_approved
+//
 // Synchronous charge outcomes a user sees: approved | rejected | review.
 // This SDK does NOT map these to any internal state — that belongs in the caller
 // (prepa-backend's models.PaywayStatusToPaymentState), matching the MP/Mobbex adapters.
