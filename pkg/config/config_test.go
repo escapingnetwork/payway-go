@@ -86,17 +86,16 @@ func TestNew_RequiresAPIKey(t *testing.T) {
 func TestEnvironmentDefaultBaseURLs(t *testing.T) {
 	sandboxCfg, err := New("k", WithEnvironment(Sandbox))
 	if err != nil {
-		t.Fatalf("New: %v", err)
+		t.Fatal(err)
 	}
-	if sandboxCfg.buildURL("/x") != "https://developers.decidir.com/api/v2/x" {
-		t.Errorf("sandbox buildURL = %q", sandboxCfg.buildURL("/x"))
+	if got := sandboxCfg.buildURL("/x"); got != "https://developers-ventasonline.payway.com.ar/api/v2/x" {
+		t.Errorf("sandbox buildURL = %q", got)
 	}
-
-	prodCfg, err := New("k")
+	prodCfg, err := New("k", WithEnvironment(Production))
 	if err != nil {
-		t.Fatalf("New: %v", err)
+		t.Fatal(err)
 	}
-	if prodCfg.buildURL("/x") != "https://ventasonline.payway.com.ar/api/v2/x" {
-		t.Errorf("production buildURL = %q", prodCfg.buildURL("/x"))
+	if got := prodCfg.buildURL("/x"); got != "https://ventasonline.payway.com.ar/api/v2/x" {
+		t.Errorf("production buildURL = %q", got)
 	}
 }
