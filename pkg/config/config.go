@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
@@ -184,38 +185,58 @@ type decidirValidationError struct {
 }
 
 func parseAPIError(statusCode int, rawBody []byte) error {
-	var withArray struct {
-		ErrorType        string                   `json:"error_type,omitempty"`
-		ValidationErrors []decidirValidationError `json:"validation_errors,omitempty"`
-		Message          string                   `json:"message,omitempty"`
+	var obj struct {
+		ErrorType        string          `json:"error_type,omitempty"`
+		ValidationErrors json.RawMessage `json:"validation_errors,omitempty"`
+		Message          string          `json:"message,omitempty"`
+		Errors           []struct {
+			Status string `json:"status"`
+			Code   string `json:"code"`
+			Title  string `json:"title"`
+			Detail string `json:"detail"`
+		} `json:"errors,omitempty"`
 	}
-	_ = json.Unmarshal(rawBody, &withArray)
+	_ = json.Unmarshal(rawBody, &obj)
 
-	// Some Decidir error responses are documented as a bare top-level array of
-	// {code, param} rather than wrapped in an object — try that shape too if the object
-	// decode found nothing useful.
-	var bareArray []decidirValidationError
-	if len(withArray.ValidationErrors) == 0 && withArray.ErrorType == "" {
-		_ = json.Unmarshal(rawBody, &bareArray)
+	// validation_errors: array of {code,param}, OR an arbitrary-key object, OR absent.
+	var vErrs []decidirValidationError
+	var vMap map[string]string
+	if len(obj.ValidationErrors) > 0 {
+		if json.Unmarshal(obj.ValidationErrors, &vErrs) != nil {
+			_ = json.Unmarshal(obj.ValidationErrors, &vMap)
+		}
+	}
+	// Bare top-level array shape.
+	if len(vErrs) == 0 && obj.ErrorType == "" && len(obj.Errors) == 0 {
+		_ = json.Unmarshal(rawBody, &vErrs)
 	}
 
-	validationErrors := withArray.ValidationErrors
-	if len(validationErrors) == 0 {
-		validationErrors = bareArray
-	}
-
-	msg := withArray.Message
-	if msg == "" && len(validationErrors) > 0 {
-		msg = fmt.Sprintf("%s (%s)", validationErrors[0].Code, validationErrors[0].Param)
-	}
-	if msg == "" {
+	msg := obj.Message
+	switch {
+	case msg != "":
+	case len(vErrs) > 0:
+		msg = fmt.Sprintf("%s (%s)", vErrs[0].Code, vErrs[0].Param)
+	case len(vMap) > 0:
+		parts := make([]string, 0, len(vMap))
+		for k, v := range vMap {
+			parts = append(parts, k+"="+v)
+		}
+		sort.Strings(parts)
+		msg = strings.Join(parts, ", ")
+	case len(obj.Errors) > 0:
+		e := obj.Errors[0]
+		msg = strings.TrimSpace(e.Title + " " + e.Detail)
+		if msg == "" {
+			msg = e.Code
+		}
+	default:
 		msg = fmt.Sprintf("HTTP %d", statusCode)
 	}
 
 	return &PaywayError{
 		StatusCode:       statusCode,
-		ErrorType:        withArray.ErrorType,
-		ValidationErrors: validationErrors,
+		ErrorType:        obj.ErrorType,
+		ValidationErrors: vErrs,
 		Message:          msg,
 		RawBody:          string(rawBody),
 	}

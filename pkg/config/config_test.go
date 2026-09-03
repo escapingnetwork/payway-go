@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -80,6 +81,32 @@ func TestDoRequest_NonSuccessStatusReturnsPaywayError(t *testing.T) {
 func TestNew_RequiresAPIKey(t *testing.T) {
 	if _, err := New(""); err == nil {
 		t.Fatal("expected error for empty apiKey, got nil")
+	}
+}
+
+func TestParseAPIError_Shapes(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want string // substring expected in .Message
+	}{
+		{"object array", `{"error_type":"invalid_request_error","validation_errors":[{"code":"param_required","param":"token"}]}`, "param_required"},
+		{"bare array", `[{"code":"param_required","param":"token"}]`, "param_required"},
+		{"object map", `{"error_type":"invalid_status_error","validation_errors":{"status":"annulled"}}`, "annulled"},
+		{"apim errors", `{"errors":[{"status":"401","code":"APIM-401","title":"Unauthorized"}]}`, "Unauthorized"},
+		{"message only", `{"message":"Invalid authentication credentials"}`, "Invalid authentication"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := parseAPIError(400, []byte(tc.body))
+			pe, ok := err.(*PaywayError)
+			if !ok {
+				t.Fatalf("not a *PaywayError: %T", err)
+			}
+			if !strings.Contains(pe.Message, tc.want) {
+				t.Errorf("Message = %q, want substring %q", pe.Message, tc.want)
+			}
+		})
 	}
 }
 
