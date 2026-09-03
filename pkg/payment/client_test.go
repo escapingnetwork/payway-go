@@ -136,6 +136,39 @@ func TestClient_Get(t *testing.T) {
 	}
 }
 
+func TestClient_Create_DecodesDistributedResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"id": 13328143, "status": "approved", "payment_type": "distributed", "amount": 1000,
+			"sub_payments": [
+				{"site_id":"04052019","installments":1,"amount":600,"ticket":"5206","card_authorization_code":"192506","subpayment_id":433449,"status":"approved"},
+				{"site_id":"04052018","installments":1,"amount":400,"ticket":"6384","card_authorization_code":"192506","subpayment_id":433448,"status":"approved"}
+			]}`))
+	}))
+	defer srv.Close()
+	cfg, err := config.New("private-key", config.WithBaseURL(srv.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := NewClient(cfg).Create(context.Background(), CreateRequest{
+		Token: "t", PaymentMethodID: 1, AmountCents: 1000, Currency: "ARS", Installments: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.SubPayments) != 2 {
+		t.Fatalf("SubPayments len = %d", len(got.SubPayments))
+	}
+	sp := got.SubPayments[0]
+	if sp.ID != 433449 {
+		t.Errorf("SubPayment.ID = %d, want 433449 (from subpayment_id)", sp.ID)
+	}
+	if sp.SiteID != "04052019" || sp.AmountCents != 600 || sp.Status != "approved" {
+		t.Errorf("SubPayment = %+v", sp)
+	}
+}
+
 func TestClient_Create_ErrorResponse(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnprocessableEntity)

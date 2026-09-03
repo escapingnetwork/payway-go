@@ -18,13 +18,14 @@ type StatusDetails struct {
 // *response* could still come back with a populated array, so the shape is modeled for decoding
 // completeness, not for construction.
 type SubPayment struct {
-	ID                    int64  `json:"id,omitempty"`
+	ID                    int64  `json:"subpayment_id,omitempty"` // the API returns subpayment_id, not id
 	SiteID                string `json:"site_id,omitempty"`
 	Installments          int    `json:"installments,omitempty"`
 	AmountCents           int64  `json:"amount,omitempty"`
 	Ticket                string `json:"ticket,omitempty"`
 	CardAuthorizationCode string `json:"card_authorization_code,omitempty"`
 	TID                   string `json:"tid,omitempty"`
+	Status                string `json:"status,omitempty"` // per-leg outcome; can differ from the parent status
 }
 
 // Payment is Decidir's payment resource, returned by both Create and Get. Confirmed against the
@@ -32,12 +33,14 @@ type SubPayment struct {
 // JSON object, no envelope) — this supersedes the sdk-node-ventaonline README this package was
 // originally scaffolded from, and is NOT yet independently verified against a live sandbox call.
 //
-// Status's confirmed values from those examples are "approved" and "rejected"; Decidir is
-// documented elsewhere (general product knowledge, NOT confirmed against this SDK's own sandbox
-// testing) to also use "pending" and "in_process". Treat the full vocabulary as unconfirmed until
-// a real sandbox transaction exercises each path, and do not add a status-to-internal-state
-// mapping inside this SDK; that belongs in the caller (matching how the Mobbex/MP adapters in
-// prepa-backend keep status interpretation out of their raw API clients).
+// Status lifecycle (Payway "Estado de las transacciones", 2026-09-03):
+//   process -> approved | group_rejected | group_annulled   (distributed validation)
+//   approved -> accredited (batch close) | annulled (reversal before close)
+//   accredited -> refunded (full) | approved_with_refund (partial)
+//   annulled -> annulment_approved ; refunded -> refunded_approved
+// Synchronous charge outcomes a user sees: approved | rejected | review.
+// This SDK does NOT map these to any internal state — that belongs in the caller
+// (prepa-backend's models.PaywayStatusToPaymentState), matching the MP/Mobbex adapters.
 //
 // TID (Transaction ID) is confirmed present at the root level for Visa/Mastercard/Amex simple
 // (non-distributed) payments; for distributed payments it appears per-SubPayment instead (see
